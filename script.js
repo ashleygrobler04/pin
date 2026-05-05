@@ -339,15 +339,37 @@ class BowlingGame {
     initNetwork(isHost, partnerId = null) {
         this.isNetworkGame = true;
         this.isHost = isHost;
-        this.announce(isHost ? "Generating Host ID..." : "Connecting to host...");
+        this.announce(isHost ? "Requesting Host ID from server..." : "Connecting to signaling server...");
         
-        this.peer = new Peer();
+        // Configuration with public STUN servers to help with NAT traversal/firewalls
+        const peerConfig = {
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                ]
+            }
+        };
+
+        this.peer = new Peer(peerConfig);
+
+        // Timeout for connecting to PeerJS signaling server
+        const signalTimeout = setTimeout(() => {
+            if (!this.peer.id && !this.peer.disconnected) {
+                this.announce("Signaling server timeout. Check your internet connection or firewall.");
+                this.peer.destroy();
+            }
+        }, 10000);
+
         this.peer.on('open', (id) => {
+            clearTimeout(signalTimeout);
             if (isHost) {
                 document.getElementById('peer-id-display').style.display = 'block';
                 document.getElementById('my-id').textContent = id;
-                this.announce(`Hosting. Your ID is ${id}. Waiting for partner...`);
+                this.announce(`Hosting. Your ID is ${id}. Waiting for partner to join...`);
             } else {
+                this.announce("Signaling ready. Attempting handshake with host...");
                 this.conn = this.peer.connect(partnerId);
                 this.setupConnection();
             }
@@ -356,18 +378,35 @@ class BowlingGame {
         this.peer.on('connection', (conn) => {
             if (isHost && !this.conn) {
                 this.conn = conn;
+                this.announce("Partner found! Finalizing connection...");
                 this.setupConnection();
             }
         });
 
         this.peer.on('error', (err) => {
+            clearTimeout(signalTimeout);
             console.error("PeerJS error:", err);
-            this.announce("Network error: " + err.type);
+            
+            let msg = "Network error: " + err.type;
+            if (err.type === 'peer-not-found') msg = "Host not found. Check the ID and try again.";
+            if (err.type === 'network') msg = "Network connectivity issue detected.";
+            if (err.type === 'browser-incompatible') msg = "Your browser doesn't support multiplayer.";
+            
+            this.announce(msg);
         });
     }
 
     setupConnection() {
+        // Handshake timeout
+        const handshakeTimeout = setTimeout(() => {
+            if (this.conn && !this.conn.open) {
+                this.announce("Handshake timeout. Connection blocked by network or firewall.");
+                this.conn.close();
+            }
+        }, 15000);
+
         this.conn.on('open', () => {
+            clearTimeout(handshakeTimeout);
             this.myPlayerNum = this.isHost ? 1 : 2;
             const role = this.isHost ? "Player 1" : "Player 2";
             this.announce(`Connected! You are ${role}. Game starting...`);
@@ -379,13 +418,15 @@ class BowlingGame {
         this.conn.on('data', (data) => this.handleNetworkData(data));
         
         this.conn.on('close', () => {
+            clearTimeout(handshakeTimeout);
             this.announce("Partner disconnected. Returning to setup.");
             setTimeout(() => location.reload(), 3000);
         });
 
         this.conn.on('error', (err) => {
+            clearTimeout(handshakeTimeout);
             console.error("Connection error:", err);
-            this.announce("Connection error occurred.");
+            this.announce("Connection error occurred. Game cannot continue.");
         });
     }
 
