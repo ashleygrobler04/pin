@@ -296,14 +296,32 @@ class BowlingGame {
     }
 
     setupEventListeners() {
-        document.getElementById('start-btn').addEventListener('click', () => this.start(false));
-        document.getElementById('host-btn').addEventListener('click', () => this.initNetwork(true));
+        document.getElementById('start-btn').addEventListener('click', () => {
+            this.audio.init();
+            this.start(false);
+        });
+        document.getElementById('host-btn').addEventListener('click', () => {
+            this.audio.init();
+            this.initNetwork(true);
+        });
         document.getElementById('join-btn').addEventListener('click', () => {
+            this.audio.init();
             document.getElementById('join-input-area').style.display = 'block';
+            document.getElementById('join-id').focus();
         });
         document.getElementById('confirm-join-btn').addEventListener('click', () => {
-            const id = document.getElementById('join-id').value;
+            this.audio.init();
+            const id = document.getElementById('join-id').value.trim();
             if (id) this.initNetwork(false, id);
+        });
+
+        document.getElementById('copy-id-btn').addEventListener('click', () => {
+            const id = document.getElementById('my-id').textContent;
+            navigator.clipboard.writeText(id).then(() => {
+                this.announce("ID copied to clipboard.");
+            }).catch(err => {
+                this.announce("Failed to copy ID.");
+            });
         });
 
         window.addEventListener('keydown', (e) => {
@@ -313,7 +331,6 @@ class BowlingGame {
             }
         });
 
-        // Mobile support: Any touch acts as a Space bar press
         window.addEventListener('touchstart', (e) => {
             if (this.state !== 'WAITING' && e.target.tagName !== 'BUTTON') {
                 e.preventDefault();
@@ -326,32 +343,54 @@ class BowlingGame {
     initNetwork(isHost, partnerId = null) {
         this.isNetworkGame = true;
         this.isHost = isHost;
+        this.announce(isHost ? "Generating Host ID..." : "Connecting to host...");
+        
         this.peer = new Peer();
         this.peer.on('open', (id) => {
             if (isHost) {
                 document.getElementById('peer-id-display').style.display = 'block';
                 document.getElementById('my-id').textContent = id;
-                this.announce("Hosting. Your ID is on screen. Waiting for partner...");
+                this.announce(`Hosting. Your ID is ${id}. Waiting for partner...`);
             } else {
                 this.conn = this.peer.connect(partnerId);
                 this.setupConnection();
             }
         });
+
         this.peer.on('connection', (conn) => {
             if (isHost && !this.conn) {
                 this.conn = conn;
                 this.setupConnection();
-                this.start(true);
             }
+        });
+
+        this.peer.on('error', (err) => {
+            console.error("PeerJS error:", err);
+            this.announce("Network error: " + err.type);
         });
     }
 
     setupConnection() {
         this.conn.on('open', () => {
             this.myPlayerNum = this.isHost ? 1 : 2;
-            if (!this.isHost) this.start(true);
+            const role = this.isHost ? "Player 1" : "Player 2";
+            this.announce(`Connected! You are ${role}. Game starting...`);
+            
+            // Short delay to let the "Connected" message be read
+            setTimeout(() => this.start(true), 1500);
         });
+
         this.conn.on('data', (data) => this.handleNetworkData(data));
+        
+        this.conn.on('close', () => {
+            this.announce("Partner disconnected. Returning to setup.");
+            setTimeout(() => location.reload(), 3000);
+        });
+
+        this.conn.on('error', (err) => {
+            console.error("Connection error:", err);
+            this.announce("Connection error occurred.");
+        });
     }
 
     handleNetworkData(data) {
