@@ -317,11 +317,7 @@ class BowlingGame {
 
         document.getElementById('copy-id-btn').addEventListener('click', () => {
             const id = document.getElementById('my-id').textContent;
-            navigator.clipboard.writeText(id).then(() => {
-                this.announce("ID copied to clipboard.");
-            }).catch(err => {
-                this.announce("Failed to copy ID.");
-            });
+            this.copyToClipboard(id);
         });
 
         window.addEventListener('keydown', (e) => {
@@ -407,6 +403,51 @@ class BowlingGame {
         document.getElementById('setup-ui').style.display = 'none';
         document.getElementById('game-ui').style.display = 'block';
         this.nextTurn();
+    }
+
+    copyToClipboard(text) {
+        if (!text || text === '...') {
+            this.announce("ID not ready yet.");
+            return;
+        }
+
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            this.fallbackCopyTextToClipboard(text);
+            return;
+        }
+
+        navigator.clipboard.writeText(text).then(() => {
+            this.announce("ID copied to clipboard.");
+        }).catch(err => {
+            this.fallbackCopyTextToClipboard(text);
+        });
+    }
+
+    fallbackCopyTextToClipboard(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        
+        // Ensure the textarea is not visible or disruptive
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        textArea.style.top = "0";
+        document.body.appendChild(textArea);
+        
+        textArea.focus();
+        textArea.select();
+
+        try {
+            const successful = document.execCommand('copy');
+            if (successful) {
+                this.announce("ID copied to clipboard.");
+            } else {
+                this.announce("Copy failed. Please copy the ID manually.");
+            }
+        } catch (err) {
+            this.announce("Copy failed.");
+        }
+
+        document.body.removeChild(textArea);
     }
 
     announce(text) {
